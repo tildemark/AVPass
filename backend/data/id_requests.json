@@ -1,5 +1,25 @@
 [
   {
+    "id": "REQ-1779069888250",
+    "employeeName": "COLONIA, KENT NIÑO",
+    "empCode": "ABISC-161011",
+    "company": "Avega Bros. Integrated Shipping Corp.",
+    "department": "IT Department",
+    "position": "Hardware and Network Supervisor",
+    "purpose": "New id",
+    "requestedBy": "admin",
+    "status": "pending",
+    "statusHistory": [
+      {
+        "status": "pending",
+        "note": "Request submitted",
+        "changedAt": "2026-05-18T02:04:48.250Z"
+      }
+    ],
+    "createdAt": "2026-05-18T02:04:48.250Z",
+    "updatedAt": "2026-05-18T02:04:48.250Z"
+  },
+  {
     "id": "REQ-1776135160452",
     "employeeName": "MAKIG-ANGAY, NIKKI",
     "empCode": "ABMCI-211002",

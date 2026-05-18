@@ -39,14 +39,16 @@ interface CanvasImage {
 //  DEFAULT FIELDS
 // ─────────────────────────────────────────────────────────────
 const defaultFrontFields: IDField[] = [
-  { id: 'nickname', label: 'First Name / Nickname', value: 'JESUS', x: 35, y: 86, fontSize: 22, color: '#ffffff', bold: true, italic: false, align: 'left', visible: false },
-  { id: 'idnum',    label: 'ID Number',              value: 'ABISC-231003', x: 32, y: 92, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
-  { id: 'fullname', label: 'Full Name',               value: 'JESUS B. ILLUSTRISIMO', x: 13, y: 75, fontSize: 10, color: '#ffffff', bold: true, italic: false, align: 'left', visible: true },
-  { id: 'position', label: 'Position / Designation',  value: 'ASSISTANT PORT ENGINEER', x: 13, y: 79, fontSize: 9, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
+  { id: 'nickname', label: 'First Name / Nickname', value: 'NICKNAME', x: 35, y: 86, fontSize: 22, color: '#ffffff', bold: true, italic: false, align: 'left', visible: false },
+  { id: 'idnum',    label: 'ID Number',              value: 'ID-NUMBER', x: 32, y: 92, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
+  { id: 'fullname', label: 'Full Name',               value: 'FULL NAME', x: 13, y: 75, fontSize: 10, color: '#ffffff', bold: true, italic: false, align: 'left', visible: true },
+  { id: 'position', label: 'Position / Designation',  value: 'POSITION', x: 13, y: 79, fontSize: 9, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
+  { id: 'company',  label: 'Company',                 value: 'COMPANY', x: 50, y: 10, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
 ];
 const defaultBackFields: IDField[] = [
   { id: 'emergency_person', label: 'Emergency Contact Person', value: 'Contact Person Name', x: 43, y: 15, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
   { id: 'emergency_num',    label: 'Emergency Number',         value: '09123456789',         x: 35, y: 20, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
+  { id: 'company_back',     label: 'Company',                  value: 'COMPANY',                    x: 50, y: 88, fontSize: 8,  color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -298,6 +300,13 @@ const FieldEditor = React.memo(({ field, onUpdate }: FieldEditorProps) => {
 
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#f0f4ff', borderRadius: 10, border: '1px solid #c7d2fe' }}>
+        <span style={{ fontSize: 16 }}>✏️</span>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '1px' }}>Editing Field</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{field.label}</div>
+        </div>
+      </div>
       <div>
         <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Text Content</label>
         <textarea value={localVal} rows={3} onChange={e => { setLocalVal(e.target.value); onUpdate(field.id, { value: e.target.value }); }} style={{ ...inpStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.5' }} />
@@ -504,19 +513,30 @@ export default function TemplateManager({ editingTemplate, onBack }: TemplateMan
   const cardBackRef = React.useRef<HTMLDivElement>(null);
 
   // card data
-  const [front, setFront] = React.useState<IDSide>(editingTemplate?.front ?? {
+  const companyFrontDefault: IDField = { id: 'company',      label: 'Company', value: '', x: 50, y: 88, fontSize: 8, color: '#ffffff', bold: false, italic: false, align: 'center', visible: false };
+  const companyBackDefault:  IDField = { id: 'company_back', label: 'Company', value: '', x: 50, y: 88, fontSize: 8, color: '#ffffff', bold: false, italic: false, align: 'center', visible: false };
+  const ensureFrontCompany = (side: IDSide): IDSide => {
+    if (side.fields.some(f => f.id === 'company')) return side;
+    return { ...side, fields: [...side.fields, companyFrontDefault] };
+  };
+  const ensureBackCompany = (side: IDSide): IDSide => {
+    if (side.fields.some(f => f.id === 'company_back')) return side;
+    return { ...side, fields: [...side.fields, companyBackDefault] };
+  };
+
+  const [front, setFront] = React.useState<IDSide>(ensureFrontCompany(editingTemplate?.front ?? {
     background: null, fields: defaultFrontFields,
     photoX: 50, photoY: 48, photoW: 70, photoH: 44, showPhoto: true,
     sigX: 35, sigY: 86, sigW: 40, sigH: 8, showSig: true,
-  });
-  const [back, setBack] = React.useState<IDSide>(editingTemplate?.back ?? {
+  }));
+  const [back, setBack] = React.useState<IDSide>(ensureBackCompany(editingTemplate?.back ?? {
     background: null, fields: defaultBackFields,
     photoX: 50, photoY: 48, photoW: 70, photoH: 50, showPhoto: false,
     sigX: 35, sigY: 85, sigW: 40, sigH: 8, showSig: false,
     showQR: true, qrX: 50, qrY: 42, qrSize: 70,
     qrUrl: 'https://employee.avegabros.com/verify/',
     qrFg: '#000000', qrBg: '#ffffff',
-  });
+  }));
 
   // history
   const [history, setHistory] = React.useState<{ front: IDSide; back: IDSide }[]>([]);
@@ -540,8 +560,8 @@ export default function TemplateManager({ editingTemplate, onBack }: TemplateMan
   // templates
   const [templates, setTemplates] = React.useState<IDTemplate[]>([]);
   const [showTemplateModal, setShowTemplateModal] = React.useState(false);
-  const [templateName, setTemplateName] = React.useState('');
-  const [templateCompany, setTemplateCompany] = React.useState('');
+  const [templateName, setTemplateName] = React.useState(editingTemplate?.name || '');
+  const [templateCompany, setTemplateCompany] = React.useState(editingTemplate?.company || '');
   React.useEffect(() => { fetch(`${API_URL}/templates`).then(r => r.ok ? r.json() : []).then(setTemplates).catch(() => {}); }, []);
 
   // notifications
@@ -949,7 +969,7 @@ export default function TemplateManager({ editingTemplate, onBack }: TemplateMan
     setSavingTemplate(false);
   };
 
-  const loadTemplate = (t: IDTemplate) => { setFront({ ...t.front }); setBack({ ...t.back }); setTemplateName(t.name); setTemplateCompany(t.company || ''); pushHistory(t.front, t.back); showMsg('success', `Loaded "${t.name}"`); setShowTemplateModal(false); };
+  const loadTemplate = (t: IDTemplate) => { setFront(ensureFrontCompany({ ...t.front })); setBack(ensureBackCompany({ ...t.back })); setTemplateName(t.name); setTemplateCompany(t.company || ''); pushHistory(t.front, t.back); showMsg('success', `Loaded "${t.name}"`); setShowTemplateModal(false); };
   const deleteTemplateFromModal = async (id: string) => { const updated = templates.filter(t => t.id !== id); await fetch(`${API_URL}/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }); setTemplates(updated); };
 
   // ─── RENDER CARD ───

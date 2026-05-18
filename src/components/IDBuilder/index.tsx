@@ -7,16 +7,17 @@ import { resolveImg, hexToColorFilter, hexToColorFilterWhite } from '../../utils
 
 // ── DEFAULT FIELDS ──
 const defaultFrontFields: IDField[] = [
-  { id: 'nickname', label: 'First Name / Nickname', value: 'JESUS', x: 50, y: 62, fontSize: 22, color: '#ffffff', bold: true, italic: false, align: 'left', visible: false },
-  { id: 'idnum',    label: 'ID Number',              value: 'ABISC-231003', x: 32, y: 92, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
-  { id: 'fullname', label: 'Full Name',               value: 'JESUS B. ILLUSTRISIMO', x: 13, y: 75, fontSize: 10, color: '#ffffff', bold: true, italic: false, align: 'left', visible: true },
-  { id: 'position', label: 'Position / Designation',  value: 'ASSISTANT PORT ENGINEER', x: 32, y: 92, fontSize: 9, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
-  { id: 'company',  label: 'Company',                 value: '', x: 50, y: 88, fontSize: 8, color: '#ffffff', bold: false, italic: false, align: 'center', visible: false },
+  { id: 'nickname', label: 'First Name / Nickname', value: 'NICKNAME', x: 50, y: 62, fontSize: 22, color: '#ffffff', bold: true, italic: false, align: 'left', visible: false },
+  { id: 'idnum',    label: 'ID Number',              value: 'ID-NUMBER', x: 32, y: 92, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
+  { id: 'fullname', label: 'Full Name',               value: 'FULL NAME', x: 13, y: 75, fontSize: 10, color: '#ffffff', bold: true, italic: false, align: 'left', visible: true },
+  { id: 'position', label: 'Position / Designation',  value: 'POSITION', x: 32, y: 92, fontSize: 9, color: '#ffffff', bold: false, italic: false, align: 'left', visible: true },
+  { id: 'company',  label: 'Company',                 value: '', x: 50, y: 88, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
 ];
 
 const defaultBackFields: IDField[] = [
   { id: 'emergency_num',    label: 'Emergency Number',         value: '09123456789',         x: 35, y: 20, fontSize: 10, color: '#ffffff', bold: false,  italic: false, align: 'center', visible: true },
   { id: 'emergency_person', label: 'Emergency Contact Person', value: 'Contact Person Name', x: 43, y: 15, fontSize: 10, color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
+  { id: 'company_back',     label: 'Company',                  value: 'COMPANY',                    x: 50, y: 88, fontSize: 10,  color: '#ffffff', bold: false, italic: false, align: 'center', visible: true },
 ];
 
 // ── SHARED STYLES & COMPONENTS ──
@@ -180,9 +181,16 @@ const FieldEditor = React.memo(({ field, onUpdate }: FieldEditorProps) => {
 
   return (
     <div style={{padding:'20px',display:'flex',flexDirection:'column',gap:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 14px',background:'#f0f4ff',borderRadius:'10px',border:'1px solid #c7d2fe'}}>
+        <span style={{fontSize:'16px'}}>✏️</span>
+        <div>
+          <div style={{fontSize:'10px',fontWeight:700,color:'#6366f1',textTransform:'uppercase',letterSpacing:'1px'}}>Editing Field</div>
+          <div style={{fontSize:'13px',fontWeight:700,color:'#0f172a'}}>{field.label}</div>
+        </div>
+      </div>
       <div>
         <label style={{display:'block',fontSize:'12px',fontWeight:600,color:'#475569',marginBottom:'6px'}}>Text Content</label>
-        <textarea value={localVal} rows={3} onChange={e=>{setLocalVal(e.target.value); onUpdate(field.id,{value:e.target.value});}} style={{...inpStyle,resize:'vertical',fontFamily:'inherit',lineHeight:'1.5'}}/>
+        <textarea value={localVal} rows={3} onChange={e=>{setLocalVal(e.target.value); onUpdate(field.id,{value:e.target.value});}} style={{...inpStyle,resize:'vertical',fontFamily:'inherit',lineHeight:'1.5'}}/> 
       </div>
       
       {panel('Typography', <>
@@ -555,9 +563,11 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
     // Fill back card fields from API data
     const emergencyNum    = (emp as any).emergency_contact_num    || '';
     const emergencyPerson = (emp as any).emergency_contact_person || '';
+    const company         = (emp as any).company || '';
     setBack(p=>({...p, fields:p.fields.map(f=>{
       if(f.id==='emergency_num'    && emergencyNum)    return {...f, value: emergencyNum};
       if(f.id==='emergency_person' && emergencyPerson) return {...f, value: emergencyPerson};
+      if(f.id==='company_back')                        return {...f, value: company};
       return f;
     })}));
   };
@@ -899,7 +909,7 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
     const name = selectedEmployee?.name || editingID?.employeeName || '';
     const pos  = selectedEmployee?.position || editingID?.position || '';
     try{
-      if(editingID){
+      if(editingID && editingID.id){
         // Update existing saved ID
         const res=await fetch(`${API_URL}/saved-ids/${editingID.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({employeeName:name,position:pos,frontImg:fi,backImg:bi,savedAt:new Date().toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})})});

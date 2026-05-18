@@ -314,7 +314,10 @@ export default function App() {
           {activeSection === 'templates' && <TemplateManager onBack={() => setActiveSection('home')} />}
           {activeSection === 'accounts' && <AccountManager currentUser={authUser} />}
           {activeSection === 'idrequests' && <IDRequests currentUser={authUser} onGoToBuilder={req => {
-            setEditingID({ id: req.id, employeeName: req.employeeName, position: req.position, front: null as any, back: null as any });
+            setEditingID(null);
+            // Pre-populate the builder search with employee name from the request
+            // by using a lightweight editingID with no front/back (fresh canvas)
+            setEditingID({ id: '', employeeName: req.employeeName, position: req.position, front: null as any, back: null as any });
             setActiveSection('idbuilder');
           }} />}
           {activeSection === 'idrecords' && <SavedIDs savedIDs={savedIDs} setSavedIDs={setSavedIDs} onEditInBuilder={entry => { setEditingID({ id: entry.id, employeeName: entry.employeeName, position: entry.position, front: entry.front, back: entry.back }); setActiveSection('idbuilder'); }} />}

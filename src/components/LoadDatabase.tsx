@@ -23,7 +23,7 @@ interface LoadDatabaseProps {
   setEmployeeDatabase?: any;
 }
 
-const LIMIT = 10000;
+const LIMIT = 100;
 
 export default function LoadDatabase({ setEmployeeDatabase }: LoadDatabaseProps) {
   const [employees, setEmployees]         = useState<ApiEmployee[]>([]);

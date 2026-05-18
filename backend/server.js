@@ -155,12 +155,12 @@ async function getHrisToken() {
     const response = await axios.post(loginUrl.toString(), {
         username: process.env.HRIS_USERNAME,
         password: process.env.HRIS_PASSWORD
-    });
+    }, { timeout: 10000 });
     
     hrisToken = response.data.token;
     return hrisToken;
   } catch (error) {
-    console.error("HRIS Login Error:", error.response ? error.response.data : error.message);
+    console.error("HRIS Login Error:", error.response ? error.response.data : (error.message || error.code || error));
     throw error;
   }
 }
@@ -180,7 +180,8 @@ app.get('/api/employees', async (req, res) => {
       if (limit) url.searchParams.append('limit', limit);
 
       const response = await axios.get(url.toString(), {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${token}` },
+          timeout: 15000,
       });
 
       // If company filter is provided, filter client-side (HRIS API may not support it natively)
@@ -204,7 +205,11 @@ app.get('/api/employees', async (req, res) => {
       if (error.response && error.response.status === 401) {
           hrisToken = null;
       }
-      console.error("Backend Error:", error.response ? error.response.data : error.message);
+      console.error("Backend Error:", error.response ? error.response.data : (error.message || error.code || error));
+      console.error("Error details:", { code: error.code, url: error.config?.url });
+      if (error.code === 'ERR_BAD_RESPONSE') {
+        console.error("Raw response:", error.response?.status, error.response?.headers?.['content-type']);
+      }
       res.status(500).json({ error: 'Failed to fetch from HRIS' });
   }
 });
@@ -601,6 +606,79 @@ app.patch('/api/saved-ids/:id', (req, res) => {
     fs.writeFileSync(IDS_FILE, JSON.stringify(data, null, 2));
     res.json(data[idx]);
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ── ID Requests ──
+const ID_REQUESTS_FILE = path.join(DATA_PATH, 'id_requests.json');
+
+const readRequests = () => fs.existsSync(ID_REQUESTS_FILE) ? JSON.parse(fs.readFileSync(ID_REQUESTS_FILE, 'utf8')) : [];
+const writeRequests = (data) => fs.writeFileSync(ID_REQUESTS_FILE, JSON.stringify(data, null, 2));
+
+// GET all requests
+app.get('/api/id-requests', (req, res) => {
+  res.json(readRequests());
+});
+
+// POST create new request
+app.post('/api/id-requests', (req, res) => {
+  const requests = readRequests();
+  const now = new Date().toISOString();
+  const newReq = {
+    id: `REQ-${Date.now()}`,
+    employeeName: req.body.employeeName || '',
+    empCode:      req.body.empCode      || '',
+    company:      req.body.company      || '',
+    department:   req.body.department   || '',
+    position:     req.body.position     || '',
+    purpose:      req.body.purpose      || '',
+    requestedBy:  req.body.requestedBy  || 'unknown',
+    status: 'pending',
+    statusHistory: [{ status: 'pending', note: 'Request submitted', changedAt: now }],
+    createdAt: now,
+    updatedAt: now,
+  };
+  requests.unshift(newReq);
+  writeRequests(requests);
+  console.log(`[ID REQUEST] Created ${newReq.id} for ${newReq.employeeName}`);
+  res.status(201).json(newReq);
+});
+
+// PATCH update request (fields or status)
+app.patch('/api/id-requests/:id', (req, res) => {
+  const requests = readRequests();
+  const idx = requests.findIndex(r => r.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+
+  const existing = requests[idx];
+  const now = new Date().toISOString();
+  const { status, note, ...fields } = req.body;
+
+  // Merge editable fields
+  const updated = { ...existing, ...fields, updatedAt: now };
+
+  // If status is being changed, push to history
+  if (status && status !== existing.status) {
+    updated.status = status;
+    updated.statusHistory = [
+      ...(existing.statusHistory || []),
+      { status, note: note || '', changedAt: now },
+    ];
+  }
+
+  requests[idx] = updated;
+  writeRequests(requests);
+  console.log(`[ID REQUEST] Updated ${req.params.id} → status: ${updated.status}`);
+  res.json(updated);
+});
+
+// DELETE request
+app.delete('/api/id-requests/:id', (req, res) => {
+  const requests = readRequests();
+  const target = requests.find(r => r.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'Not found' });
+  writeRequests(requests.filter(r => r.id !== req.params.id));
+  console.log(`[ID REQUEST] Deleted ${req.params.id}`);
+  res.sendStatus(200);
 });
 
 // ── Serve built frontend from dist/ ──

@@ -1,6 +1,6 @@
 $KEY = "$env:USERPROFILE\.ssh\id_porter"
-$SERVER = "root@10.10.0.3"
-$REMOTE = "/var/www/html/employee-form"
+$SERVER = "root@10.10.0.21"
+$REMOTE = "/opt/idgenerator/employee-form"
 
 # ── Build frontend ──
 Write-Host "=== Building ===" -ForegroundColor Cyan
@@ -34,4 +34,4 @@ ssh -i $KEY $SERVER "cd $REMOTE && docker compose down && docker compose up -d -
 
 Write-Host ""
 Write-Host "=== Done! ===" -ForegroundColor Green
-Write-Host "App: http://10.10.0.3:8001" -ForegroundColor Green
+Write-Host "App: http://10.10.0.21:8001" -ForegroundColor Green
