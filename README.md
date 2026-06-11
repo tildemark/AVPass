@@ -62,6 +62,17 @@ Open two terminal windows/tabs:
   ```
   *The frontend Vite server will start, typically on `http://localhost:5173`. It automatically proxies `/api` and `/images` requests to the port 3000 backend.*
 
+#### Option B: Run with Docker (Recommended for local testing & matching staging)
+Ensure you have Docker and Docker Compose installed:
+
+```bash
+# Start both containers (frontend on :8001, backend on :3000)
+docker compose up -d --build
+```
+*   **Frontend web page:** accessible at `http://localhost:8001`
+*   **Backend API:** accessible at `http://localhost:3000`
+*   **Database/Images persistence:** mapped to a persistent named docker volume `backend-data` defined in `docker-compose.yml`.
+
 ---
 
 ## 🔐 Default Credentials
