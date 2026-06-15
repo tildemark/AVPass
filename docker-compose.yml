@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   employee-backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    image: ghcr.io/avegabros/avpass-backend:latest
     container_name: employee-backend
     ports:
       - "3000:5000"
@@ -17,9 +15,7 @@ services:
     restart: unless-stopped
 
   employee-frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+    image: ghcr.io/avegabros/avpass-frontend:latest
     container_name: employee-frontend
     ports:
       - "8001:8001"
