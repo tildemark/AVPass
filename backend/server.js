@@ -178,7 +178,6 @@ const EMPLOYEE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 async function refreshEmployeeCache() {
   try {
-    const headers = await getHrisHeaders();
     const all = [];
     let page = 0;
     while (true) {
@@ -189,7 +188,7 @@ async function refreshEmployeeCache() {
       url.searchParams.append('order', 'asc');
       url.searchParams.append('sort', 'id');
       try {
-        const r = await axios.get(url.toString(), { headers, timeout: 15000 });
+        const r = await axios.get(url.toString(), { timeout: 15000 });
         const list = Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
         if (list.length === 0) break;
         all.push(...list);
@@ -443,47 +442,9 @@ function deleteImageFile(url) {
 // ==========================================
 // NEW HRIS API INTEGRATION
 // ==========================================
-let hrisToken = null;
-
-async function getHrisHeaders() {
-  const headers = {};
-  if (process.env.HRIS_USERNAME && process.env.HRIS_PASSWORD) {
-    try {
-      const token = await getHrisToken();
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-    } catch (err) {
-      console.warn('[HRIS-AUTH] Failed to get login token, proceeding without auth header:', err.message);
-    }
-  }
-  return headers;
-}
-
-async function getHrisToken() {
-  if (hrisToken) return hrisToken; 
-  
-  try {
-    // We need to attach the API key to the login URL as well
-    const loginUrl = new URL(process.env.HRIS_URL);
-    loginUrl.searchParams.append('key', process.env.HRIS_API_KEY);
-
-    const response = await axios.post(loginUrl.toString(), {
-        username: process.env.HRIS_USERNAME,
-        password: process.env.HRIS_PASSWORD
-    }, { timeout: 10000 });
-    
-    hrisToken = response.data.token;
-    return hrisToken;
-  } catch (error) {
-    console.error("HRIS Login Error:", error.response ? error.response.data : (error.message || error.code || error));
-    throw error;
-  }
-}
 
 app.get('/api/employees', async (req, res) => {
   const attempt = async () => {
-      const headers = await getHrisHeaders();
       const { search, page, limit, company } = req.query;
       
       const url = new URL('https://api.avegabros.org/website/id-employees');
@@ -496,7 +457,6 @@ app.get('/api/employees', async (req, res) => {
       if (page)   url.searchParams.append('page', page);
 
       const response = await axios.get(url.toString(), {
-          headers,
           timeout: 15000,
       });
 
@@ -539,7 +499,7 @@ app.get('/api/hash/:empCode', (req, res) => {
   const { empCode } = req.params;
   if (!empCode) return res.status(400).json({ error: 'Employee code required' });
   const hash = hashEmpCode(empCode);
-  res.json({ empCode, hash, url: `https://employee.abas.ph/verify/${hash}` });
+  res.json({ empCode, hash, url: `https://avpass.abas.ph/verify/${hash}` });
 });
 
 app.get('/api/verify/:token', async (req, res) => {
@@ -556,29 +516,27 @@ app.get('/api/verify/:token', async (req, res) => {
     return { found: true, empCode: emp.employee_id, name: emp.full_name, position: emp.position, company: emp.company || '', photo: emp.picture || null, emergencyPerson: emp.emergency_contact_person || '', emergencyNum: emp.emergency_contact_num || '', employmentStatus: emp.employee_status || '', status: isActive ? 'ACTIVE' : 'INACTIVE', isActive };
   };
 
-  const hrisSearch = async (headers, search) => {
+  const hrisSearch = async (search) => {
     const url = new URL('https://api.avegabros.org/website/id-employees');
     url.searchParams.append('key', process.env.HRIS_API_KEY);
     url.searchParams.append('search', search);
     url.searchParams.append('limit', '10');
-    const r = await axios.get(url.toString(), { headers, timeout: 15000 });
+    const r = await axios.get(url.toString(), { timeout: 15000 });
     return Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
   };
 
-  const hrisPage = async (headers, order) => {
+  const hrisPage = async (order) => {
     const url = new URL('https://api.avegabros.org/website/id-employees');
     url.searchParams.append('key', process.env.HRIS_API_KEY);
     url.searchParams.append('limit', '100');
     url.searchParams.append('page', '0');
     url.searchParams.append('order', order);
     url.searchParams.append('sort', 'id');
-    const r = await axios.get(url.toString(), { headers, timeout: 15000 });
+    const r = await axios.get(url.toString(), { timeout: 15000 });
     return Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
   };
 
   try {
-    const headers = await getHrisHeaders();
-
     // ── Step 1: Local saved_ids lookup (fastest — no HRIS scan needed) ──
     if (isHash) {
       const savedIds = readSavedIds();
@@ -586,7 +544,7 @@ app.get('/api/verify/:token', async (req, res) => {
       if (localMatch && localMatch.empCode) {
         console.log(`[VERIFY] local match: empCode=${localMatch.empCode}`);
         try {
-          const list = await hrisSearch(headers, localMatch.empCode);
+          const list = await hrisSearch(localMatch.empCode);
           const emp = list.find(e => (e.employee_id || '').toLowerCase() === localMatch.empCode.toLowerCase());
           if (emp) {
             console.log(`[VERIFY] success via local+hris: ${emp.employee_id}`);
@@ -604,7 +562,7 @@ app.get('/api/verify/:token', async (req, res) => {
       const cachedEmpCode = getCachedEmpCode(tokenParam.toLowerCase());
       if (cachedEmpCode) {
         console.log(`[VERIFY] cache hit: empCode=${cachedEmpCode}`);
-        const list = await hrisSearch(headers, cachedEmpCode);
+        const list = await hrisSearch(cachedEmpCode);
         const emp = list.find(e => (e.employee_id || '').toLowerCase() === cachedEmpCode.toLowerCase());
         if (emp) {
           console.log(`[VERIFY] success via cache: ${emp.employee_id}`);
@@ -624,14 +582,14 @@ app.get('/api/verify/:token', async (req, res) => {
         setCachedEmpCode(tokenParam.toLowerCase(), emp.employee_id);
         // Fetch fresh status from HRIS using direct search
         try {
-          const list = await hrisSearch(headers, emp.employee_id);
+          const list = await hrisSearch(emp.employee_id);
           const fresh = list.find(e => (e.employee_id || '').toLowerCase() === emp.employee_id.toLowerCase());
           if (fresh) emp = fresh;
         } catch (e) { /* use cached version */ }
       }
     } else {
       // Legacy: direct employee_id search
-      const list = await hrisSearch(headers, tokenParam);
+      const list = await hrisSearch(tokenParam);
       console.log(`[VERIFY] legacy list=${list.length}`);
       emp = list.find(e => (e.employee_id || '').toLowerCase() === tokenParam.toLowerCase()) || list[0];
     }
