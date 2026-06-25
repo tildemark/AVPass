@@ -183,7 +183,7 @@ async function refreshEmployeeCache() {
     while (true) {
       const url = new URL('https://api.avegabros.org/website/id-employees');
       url.searchParams.append('key', process.env.HRIS_API_KEY);
-      url.searchParams.append('limit', '100');
+      url.searchParams.append('limit', '500');
       url.searchParams.append('page', String(page));
       url.searchParams.append('order', 'asc');
       url.searchParams.append('sort', 'id');
@@ -193,7 +193,7 @@ async function refreshEmployeeCache() {
         if (list.length === 0) break;
         all.push(...list);
         console.log(`[EMP-CACHE] page=${page} +${list.length} total=${all.length}`);
-        if (list.length < 100) break;
+        if (list.length < 500) break;
         page++;
       } catch (pageErr) {
         console.log(`[EMP-CACHE] page=${page} failed: ${pageErr.message} — stopping`);
