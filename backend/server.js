@@ -183,6 +183,7 @@ async function refreshEmployeeCache() {
     while (true) {
       const url = new URL('https://api.avegabros.org/website/id-employees');
       url.searchParams.append('key', process.env.HRIS_API_KEY);
+      url.searchParams.append('status', 'Active');
       url.searchParams.append('limit', '500');
       url.searchParams.append('page', String(page));
       url.searchParams.append('order', 'asc');
@@ -449,6 +450,7 @@ app.get('/api/employees', async (req, res) => {
       
       const url = new URL('https://api.avegabros.org/website/id-employees');
       url.searchParams.append('key', process.env.HRIS_API_KEY);
+      url.searchParams.append('status', 'Active');
       url.searchParams.append('order', 'asc');
       url.searchParams.append('sort', 'id');
       url.searchParams.append('limit', limit || '50'); // default limit — avoids ERR_BAD_RESPONSE
@@ -519,6 +521,7 @@ app.get('/api/verify/:token', async (req, res) => {
   const hrisSearch = async (search) => {
     const url = new URL('https://api.avegabros.org/website/id-employees');
     url.searchParams.append('key', process.env.HRIS_API_KEY);
+    url.searchParams.append('status', 'Active');
     url.searchParams.append('search', search);
     url.searchParams.append('limit', '10');
     const r = await axios.get(url.toString(), { timeout: 15000 });
@@ -528,6 +531,7 @@ app.get('/api/verify/:token', async (req, res) => {
   const hrisPage = async (order) => {
     const url = new URL('https://api.avegabros.org/website/id-employees');
     url.searchParams.append('key', process.env.HRIS_API_KEY);
+    url.searchParams.append('status', 'Active');
     url.searchParams.append('limit', '100');
     url.searchParams.append('page', '0');
     url.searchParams.append('order', order);
