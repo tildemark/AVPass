@@ -9,10 +9,132 @@ import multer from 'multer';
 import axios from 'axios';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import * as Minio from 'minio';
 
 // Recreate __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize MinIO client
+let minioClient = null;
+if (process.env.MINIO_ENDPOINT) {
+  minioClient = new Minio.Client({
+    endPoint: process.env.MINIO_ENDPOINT,
+    port: parseInt(process.env.MINIO_PORT || '443', 10),
+    useSSL: process.env.MINIO_USE_SSL === 'true',
+    accessKey: process.env.MINIO_ACCESS_KEY || '',
+    secretKey: process.env.MINIO_SECRET_KEY || '',
+    region: process.env.MINIO_REGION || 'abas-ph'
+  });
+  console.log('[MinIO] Client initialized for:', process.env.MINIO_ENDPOINT);
+} else {
+  console.log('[MinIO] Client NOT initialized (MINIO_ENDPOINT missing)');
+}
+
+async function uploadBase64ToMinio(base64Str, filename) {
+  if (!minioClient || !base64Str) return base64Str;
+  try {
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return base64Str;
+    }
+    const contentType = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    const bucketName = process.env.MINIO_BUCKET || 'company-id';
+    const year = new Date().getFullYear();
+    const objectName = `ids/${year}/${filename}`;
+    
+    const exists = await minioClient.bucketExists(bucketName).catch(() => false);
+    if (!exists) {
+      await minioClient.makeBucket(bucketName, process.env.MINIO_REGION || 'abas-ph');
+      console.log(`[MinIO] Created bucket: ${bucketName}`);
+    }
+
+    try {
+      const policy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${bucketName}/*`]
+          }
+        ]
+      });
+      await minioClient.setBucketPolicy(bucketName, policy);
+    } catch (policyErr) {
+      console.log('[MinIO] Note: Could not set bucket policy:', policyErr.message);
+    }
+
+    await minioClient.putObject(bucketName, objectName, buffer, buffer.length, {
+      'Content-Type': contentType
+    });
+    
+    const publicUrl = `${process.env.MINIO_PUBLIC_URL || `https://${process.env.MINIO_ENDPOINT}`}/${bucketName}/${objectName}`;
+    console.log(`[MinIO] Uploaded ${objectName} successfully: ${publicUrl}`);
+    return publicUrl;
+  } catch (err) {
+    console.error('[MinIO] Upload failed:', err.message);
+    return base64Str;
+  }
+}
+
+async function uploadBufferToMinio(buffer, objectName, contentType) {
+  if (!minioClient) return null;
+  const bucketName = process.env.MINIO_BUCKET || 'company-id';
+  try {
+    const exists = await minioClient.bucketExists(bucketName).catch(() => false);
+    if (!exists) {
+      await minioClient.makeBucket(bucketName, process.env.MINIO_REGION || 'abas-ph');
+      console.log(`[MinIO] Created bucket: ${bucketName}`);
+    }
+
+    try {
+      const policy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${bucketName}/*`]
+          }
+        ]
+      });
+      await minioClient.setBucketPolicy(bucketName, policy);
+    } catch (policyErr) {
+      console.log('[MinIO] Note: Could not set bucket policy:', policyErr.message);
+    }
+
+    await minioClient.putObject(bucketName, objectName, buffer, buffer.length, {
+      'Content-Type': contentType
+    });
+
+    const publicUrl = `${process.env.MINIO_PUBLIC_URL || `https://${process.env.MINIO_ENDPOINT}`}/${bucketName}/${objectName}`;
+    console.log(`[MinIO] Uploaded to abas/${objectName} successfully: ${publicUrl}`);
+    return publicUrl;
+  } catch (err) {
+    console.error('[MinIO] Upload to bucket abas failed:', err.message);
+    throw err;
+  }
+}
+
+async function uploadBase64ToAbasMinio(base64Str, objectName, contentType) {
+  if (!minioClient || !base64Str) return base64Str;
+  try {
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return base64Str;
+    }
+    const actualContentType = contentType || matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    return await uploadBufferToMinio(buffer, objectName, actualContentType);
+  } catch (err) {
+    console.error('[MinIO] Base64 upload to abas failed:', err.message);
+    return base64Str;
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,23 +178,23 @@ const EMPLOYEE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 async function refreshEmployeeCache() {
   try {
-    const token = await getHrisToken();
     const all = [];
     let page = 0;
     while (true) {
       const url = new URL('https://api.avegabros.org/website/id-employees');
       url.searchParams.append('key', process.env.HRIS_API_KEY);
-      url.searchParams.append('limit', '100');
+      url.searchParams.append('status', 'Active');
+      url.searchParams.append('limit', '500');
       url.searchParams.append('page', String(page));
       url.searchParams.append('order', 'asc');
       url.searchParams.append('sort', 'id');
       try {
-        const r = await axios.get(url.toString(), { headers: { 'Authorization': `Bearer ${token}` }, timeout: 15000 });
+        const r = await axios.get(url.toString(), { timeout: 15000 });
         const list = Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
         if (list.length === 0) break;
         all.push(...list);
         console.log(`[EMP-CACHE] page=${page} +${list.length} total=${all.length}`);
-        if (list.length < 100) break;
+        if (list.length < 500) break;
         page++;
       } catch (pageErr) {
         console.log(`[EMP-CACHE] page=${page} failed: ${pageErr.message} — stopping`);
@@ -123,44 +245,98 @@ app.get('/images/:filename', async (req, res) => {
   // 1. Serve locally if already cached
   if (fs.existsSync(localPath)) {
     const ext = path.extname(filename).toLowerCase();
-    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif' };
+    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
     if (mime[ext]) res.setHeader('Content-Type', mime[ext]);
     return res.sendFile(localPath);
   }
 
+  // 1.5. Try fetching from MinIO first
+  if (minioClient) {
+    const bucketName = process.env.MINIO_BUCKET || 'company-id';
+    const possibleKeys = [
+      `hr/avatar/${filename}`,
+      `hr/employee_pictures/${filename}`,
+      `users/signatures/${filename}`,
+      `hr/signatures/${filename}`,
+      `hr/signature/${filename}`,
+      `signatures/${filename}`,
+      `signature/${filename}`,
+      `users/signature/${filename}`
+    ];
+
+    let foundInMinio = false;
+    for (const objectKey of possibleKeys) {
+      try {
+        console.log(`[PROXY] Checking MinIO: ${bucketName}/${objectKey}`);
+        const stream = await minioClient.getObject(bucketName, objectKey);
+        const ext = path.extname(filename).toLowerCase();
+        const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+        if (mime[ext]) res.setHeader('Content-Type', mime[ext]);
+
+        const writer = fs.createWriteStream(localPath);
+        stream.pipe(writer);
+        await new Promise((resolve, reject) => {
+          writer.on('finish', resolve);
+          writer.on('error', reject);
+        });
+        console.log(`[PROXY] Cached from MinIO: ${filename} (via key ${objectKey})`);
+        foundInMinio = true;
+        break;
+      } catch (minioErr) {
+        console.log(`[PROXY] MinIO check failed for ${objectKey}: ${minioErr.message}`);
+      }
+    }
+    if (foundInMinio) {
+      return res.sendFile(localPath);
+    }
+  }
+
   // 2. Fetch from remote — try photos folder first, then signatures folder
-  const BASE = 'https://abas-staging.avegabros.net/';
+  const BASES = [
+    'https://api.avegabros.org/',
+    'https://abas.avegabros.org/',
+    'https://abas-staging.avegabros.net/'
+  ];
   const remotePaths = [
+    `signatures/${filename}`,
+    `assets/uploads/hr/avatar/${filename}`,
     `assets/uploads/hr/employee_pictures/${filename}`,
     `assets/uploads/users/signatures/${filename}`,
-    `assets/uploads/hr/employee_pictures/${filename}.png`,
-    `assets/uploads/hr/employee_pictures/${filename}.jpg`,
-    `assets/uploads/hr/employee_pictures/${filename}.jpeg`,
+    `assets/uploads/signatures/${filename}`,
+    `assets/uploads/hr/avatar/${filename}.png`,
+    `assets/uploads/hr/avatar/${filename}.jpg`,
+    `assets/uploads/hr/avatar/${filename}.jpeg`,
     `assets/uploads/users/signatures/${filename}.png`,
   ];
 
-  for (const remotePath of remotePaths) {
-    const remoteUrl = BASE + remotePath;
-    try {
-      console.log(`[PROXY] Fetching: ${remoteUrl}`);
-      const response = await axios({ url: remoteUrl, method: 'GET', responseType: 'stream', timeout: 8000 });
+  for (const base of BASES) {
+    let baseSuccess = false;
+    for (const remotePath of remotePaths) {
+      const remoteUrl = base + remotePath;
+      try {
+        console.log(`[PROXY] Fetching: ${remoteUrl}`);
+        const response = await axios({ url: remoteUrl, method: 'GET', responseType: 'stream', timeout: 8000 });
 
-      // ── Skip if response is not an actual image (e.g. HTML 404 page) ──
-      const contentType = response.headers['content-type'] || '';
-      if (!contentType.startsWith('image/')) {
-        console.log(`[PROXY] Skipping non-image response (${contentType}): ${remoteUrl}`);
-        response.data.destroy(); // close the stream
-        continue;
-      }
+        // ── Skip if response is not an actual image (e.g. HTML 404 page) ──
+        const contentType = response.headers['content-type'] || '';
+        if (!contentType.startsWith('image/')) {
+          console.log(`[PROXY] Skipping non-image response (${contentType}): ${remoteUrl}`);
+          response.data.destroy(); // close the stream
+          continue;
+        }
 
-      res.setHeader('Content-Type', contentType);
-      const writer = fs.createWriteStream(localPath);
-      response.data.pipe(writer);
-      return new Promise((resolve) => {
-        writer.on('finish', () => { console.log(`[PROXY] Cached: ${filename}`); res.sendFile(localPath); resolve(undefined); });
-        writer.on('error', (err) => { console.error('[PROXY] Write error:', err); res.status(500).send('Storage error'); resolve(undefined); });
-      });
-    } catch { continue; }
+        res.setHeader('Content-Type', contentType);
+        const writer = fs.createWriteStream(localPath);
+        response.data.pipe(writer);
+        await new Promise((resolve) => {
+          writer.on('finish', () => { console.log(`[PROXY] Cached: ${filename}`); res.sendFile(localPath); resolve(undefined); });
+          writer.on('error', (err) => { console.error('[PROXY] Write error:', err); res.status(500).send('Storage error'); resolve(undefined); });
+        });
+        baseSuccess = true;
+        break;
+      } catch { continue; }
+    }
+    if (baseSuccess) return;
   }
 
   console.error(`[PROXY 404] Not found: ${filename}`);
@@ -199,6 +375,65 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: `/images/${newFilename}` });
 });
 
+app.post('/api/id-requests/upload', upload.fields([
+  { name: 'picture', maxCount: 1 },
+  { name: 'signature', maxCount: 1 },
+  { name: 'supportingDoc', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const employeeName = req.body.employeeName || 'unknown';
+    const cleanedName = employeeName
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9_\-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+
+    const urls = {
+      pictureUrl: null,
+      signatureUrl: null,
+      supportingDocUrl: null
+    };
+
+    const files = req.files || {};
+
+    if (files.picture && files.picture[0]) {
+      const file = files.picture[0];
+      const ext = path.extname(file.originalname).toLowerCase() || '.png';
+      const objectName = `raw/${cleanedName}/picture${ext}`;
+      const buffer = fs.readFileSync(file.path);
+      const contentType = file.mimetype || 'image/png';
+      urls.pictureUrl = await uploadBufferToMinio(buffer, objectName, contentType);
+      fs.unlinkSync(file.path);
+    }
+
+    if (files.signature && files.signature[0]) {
+      const file = files.signature[0];
+      const ext = path.extname(file.originalname).toLowerCase() || '.png';
+      const objectName = `raw/${cleanedName}/signature${ext}`;
+      const buffer = fs.readFileSync(file.path);
+      const contentType = file.mimetype || 'image/png';
+      urls.signatureUrl = await uploadBufferToMinio(buffer, objectName, contentType);
+      fs.unlinkSync(file.path);
+    }
+
+    if (files.supportingDoc && files.supportingDoc[0]) {
+      const file = files.supportingDoc[0];
+      const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
+      const objectName = `raw/${cleanedName}/employee-docs${ext}`;
+      const buffer = fs.readFileSync(file.path);
+      const contentType = file.mimetype || 'application/pdf';
+      urls.supportingDocUrl = await uploadBufferToMinio(buffer, objectName, contentType);
+      fs.unlinkSync(file.path);
+    }
+
+    res.json(urls);
+  } catch (err) {
+    console.error('[UPLOAD-REQUEST-DOCS] Error:', err);
+    res.status(500).json({ error: 'Failed to upload files', details: err.message });
+  }
+});
+
 function deleteImageFile(url) {
   if (!url || url.startsWith('data:')) return;
   const filePath = path.join(__dirname, url);
@@ -208,36 +443,14 @@ function deleteImageFile(url) {
 // ==========================================
 // NEW HRIS API INTEGRATION
 // ==========================================
-let hrisToken = null;
-
-async function getHrisToken() {
-  if (hrisToken) return hrisToken; 
-  
-  try {
-    // We need to attach the API key to the login URL as well
-    const loginUrl = new URL(process.env.HRIS_URL);
-    loginUrl.searchParams.append('key', process.env.HRIS_API_KEY);
-
-    const response = await axios.post(loginUrl.toString(), {
-        username: process.env.HRIS_USERNAME,
-        password: process.env.HRIS_PASSWORD
-    }, { timeout: 10000 });
-    
-    hrisToken = response.data.token;
-    return hrisToken;
-  } catch (error) {
-    console.error("HRIS Login Error:", error.response ? error.response.data : (error.message || error.code || error));
-    throw error;
-  }
-}
 
 app.get('/api/employees', async (req, res) => {
   const attempt = async () => {
-      const token = await getHrisToken();
       const { search, page, limit, company } = req.query;
       
       const url = new URL('https://api.avegabros.org/website/id-employees');
       url.searchParams.append('key', process.env.HRIS_API_KEY);
+      url.searchParams.append('status', 'Active');
       url.searchParams.append('order', 'asc');
       url.searchParams.append('sort', 'id');
       url.searchParams.append('limit', limit || '50'); // default limit — avoids ERR_BAD_RESPONSE
@@ -246,20 +459,23 @@ app.get('/api/employees', async (req, res) => {
       if (page)   url.searchParams.append('page', page);
 
       const response = await axios.get(url.toString(), {
-          headers: { 'Authorization': `Bearer ${token}` },
           timeout: 15000,
       });
+
+      const rawData = response.data;
+      if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+        rawData.total = rawData.count;
+      }
 
       // If company filter provided, filter client-side
       if (company && typeof company === 'string' && company.trim()) {
         const companyLower = company.trim().toLowerCase();
-        const rawData = response.data;
         const list = Array.isArray(rawData) ? rawData : (rawData?.data ?? []);
         const filtered = list.filter(e => (e.company || '').toLowerCase().includes(companyLower));
         return Array.isArray(rawData) ? filtered : { ...rawData, data: filtered, total: filtered.length };
       }
 
-      return response.data;
+      return rawData;
   };
 
   try {
@@ -289,7 +505,7 @@ app.get('/api/hash/:empCode', (req, res) => {
   const { empCode } = req.params;
   if (!empCode) return res.status(400).json({ error: 'Employee code required' });
   const hash = hashEmpCode(empCode);
-  res.json({ empCode, hash, url: `https://employee.abas.ph/verify/${hash}` });
+  res.json({ empCode, hash, url: `https://avpass.abas.ph/verify/${hash}` });
 });
 
 app.get('/api/verify/:token', async (req, res) => {
@@ -306,29 +522,29 @@ app.get('/api/verify/:token', async (req, res) => {
     return { found: true, empCode: emp.employee_id, name: emp.full_name, position: emp.position, company: emp.company || '', photo: emp.picture || null, emergencyPerson: emp.emergency_contact_person || '', emergencyNum: emp.emergency_contact_num || '', employmentStatus: emp.employee_status || '', status: isActive ? 'ACTIVE' : 'INACTIVE', isActive };
   };
 
-  const hrisSearch = async (token, search) => {
+  const hrisSearch = async (search) => {
     const url = new URL('https://api.avegabros.org/website/id-employees');
     url.searchParams.append('key', process.env.HRIS_API_KEY);
+    url.searchParams.append('status', 'Active');
     url.searchParams.append('search', search);
     url.searchParams.append('limit', '10');
-    const r = await axios.get(url.toString(), { headers: { 'Authorization': `Bearer ${token}` }, timeout: 15000 });
+    const r = await axios.get(url.toString(), { timeout: 15000 });
     return Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
   };
 
-  const hrisPage = async (token, order) => {
+  const hrisPage = async (order) => {
     const url = new URL('https://api.avegabros.org/website/id-employees');
     url.searchParams.append('key', process.env.HRIS_API_KEY);
+    url.searchParams.append('status', 'Active');
     url.searchParams.append('limit', '100');
     url.searchParams.append('page', '0');
     url.searchParams.append('order', order);
     url.searchParams.append('sort', 'id');
-    const r = await axios.get(url.toString(), { headers: { 'Authorization': `Bearer ${token}` }, timeout: 15000 });
+    const r = await axios.get(url.toString(), { timeout: 15000 });
     return Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
   };
 
   try {
-    const token = await getHrisToken();
-
     // ── Step 1: Local saved_ids lookup (fastest — no HRIS scan needed) ──
     if (isHash) {
       const savedIds = readSavedIds();
@@ -336,7 +552,7 @@ app.get('/api/verify/:token', async (req, res) => {
       if (localMatch && localMatch.empCode) {
         console.log(`[VERIFY] local match: empCode=${localMatch.empCode}`);
         try {
-          const list = await hrisSearch(token, localMatch.empCode);
+          const list = await hrisSearch(localMatch.empCode);
           const emp = list.find(e => (e.employee_id || '').toLowerCase() === localMatch.empCode.toLowerCase());
           if (emp) {
             console.log(`[VERIFY] success via local+hris: ${emp.employee_id}`);
@@ -354,7 +570,7 @@ app.get('/api/verify/:token', async (req, res) => {
       const cachedEmpCode = getCachedEmpCode(tokenParam.toLowerCase());
       if (cachedEmpCode) {
         console.log(`[VERIFY] cache hit: empCode=${cachedEmpCode}`);
-        const list = await hrisSearch(token, cachedEmpCode);
+        const list = await hrisSearch(cachedEmpCode);
         const emp = list.find(e => (e.employee_id || '').toLowerCase() === cachedEmpCode.toLowerCase());
         if (emp) {
           console.log(`[VERIFY] success via cache: ${emp.employee_id}`);
@@ -374,14 +590,14 @@ app.get('/api/verify/:token', async (req, res) => {
         setCachedEmpCode(tokenParam.toLowerCase(), emp.employee_id);
         // Fetch fresh status from HRIS using direct search
         try {
-          const list = await hrisSearch(token, emp.employee_id);
+          const list = await hrisSearch(emp.employee_id);
           const fresh = list.find(e => (e.employee_id || '').toLowerCase() === emp.employee_id.toLowerCase());
           if (fresh) emp = fresh;
         } catch (e) { /* use cached version */ }
       }
     } else {
       // Legacy: direct employee_id search
-      const list = await hrisSearch(token, tokenParam);
+      const list = await hrisSearch(tokenParam);
       console.log(`[VERIFY] legacy list=${list.length}`);
       emp = list.find(e => (e.employee_id || '').toLowerCase() === tokenParam.toLowerCase()) || list[0];
     }
@@ -403,24 +619,7 @@ app.get('/api/verify/:token', async (req, res) => {
 
 // ── Company Logo ──
 app.get('/api/company-logo', (req, res) => {
-  const exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
-  const searchDirs = [
-    path.join(DATA_PATH, 'images'),                      // backend/data/images/ (local dev)
-    path.join(__dirname, '..', 'data', 'images'),         // ../data/images/ (production)
-    path.join(__dirname, '..', '..', 'data', 'images'),   // ../../data/images/ (docker volume)
-  ];
-  console.log('[LOGO] searching in:', searchDirs);
-  for (const dir of searchDirs) {
-    for (const ext of exts) {
-      const filePath = path.join(dir, `company-logo.${ext}`);
-      if (fs.existsSync(filePath)) {
-        console.log('[LOGO] found at:', filePath);
-        return res.sendFile(filePath);
-      }
-    }
-  }
-  console.log('[LOGO] not found in any location');
-  res.status(404).send('No logo');
+  res.redirect('https://minio-api.abas.ph/company-logo/av.png');
 });
 
 // ── Verification Page (served at /verify/:token) ──
@@ -476,7 +675,7 @@ app.get('/verify/:token', (req, res) => {
 <body>
   <div class="card" id="card">
     <div class="logo" id="logo-wrap">
-      <img src="/api/company-logo" id="company-logo-img" alt="" style="max-width:80px;max-height:80px;object-fit:contain;border-radius:8px"/>
+      <img src="https://minio-api.abas.ph/company-logo/av.png" id="company-logo-img" alt="" style="max-width:80px;max-height:80px;object-fit:contain;border-radius:8px"/>
       <div id="logo-fallback" class="logo-fallback" style="display:none">🛡</div>
     </div>
     <div class="brand">AVPass ID Verification</div>
@@ -498,7 +697,8 @@ app.get('/verify/:token', (req, res) => {
       var wrap = document.createElement('div');
       wrap.className = 'logo';
       var img = document.createElement('img');
-      img.src = '/api/company-logo';
+      img.id = 'company-logo-img';
+      img.src = 'https://minio-api.abas.ph/company-logo/av.png';
       img.style.cssText = 'max-width:80px;max-height:80px;object-fit:contain;border-radius:8px';
       var fb = document.createElement('div');
       fb.className = 'logo-fallback';
@@ -556,7 +756,7 @@ app.get('/verify/:token', (req, res) => {
         );
 
         // Re-attach logo fallback handler after innerHTML reset
-        var newLogoImg = card.querySelector('img[src="/api/company-logo"]');
+        var newLogoImg = card.querySelector('img[id="company-logo-img"]');
         var newFb = card.querySelector('.logo-fallback');
         if (newLogoImg && newFb) {
           newLogoImg.onerror = function() { newLogoImg.style.display = 'none'; newFb.style.display = 'flex'; };
@@ -733,21 +933,57 @@ app.post('/api/templates', (req, res) => {
   res.sendStatus(200);
 });
 
+// Health check endpoint
+app.get(['/health', '/api/health'], (req, res) => {
+  res.json({ status: 'UP', timestamp: new Date().toISOString() });
+});
+
 // Saved IDs — stores rendered front+back PNG as base64 per employee
 const IDS_FILE = path.join(DATA_PATH, 'saved_ids.json');
 
 const readSavedIds = () => fs.existsSync(IDS_FILE) ? JSON.parse(fs.readFileSync(IDS_FILE, 'utf8')) : [];
 
 app.get('/api/saved-ids', (req, res) => {
-  res.json(readSavedIds());
+  let data = readSavedIds();
+  if (req.query.empCode) {
+    const code = req.query.empCode.toLowerCase();
+    data = data.filter(e => (e.empCode || '').toLowerCase() === code);
+  }
+  res.json(data);
 });
-app.post('/api/saved-ids', (req, res) => {
+app.post('/api/saved-ids', async (req, res) => {
   const existing = readSavedIds();
-  const newEntry = req.body; // { id, employeeName, empCode, company, frontImg, backImg, savedAt }
+  const newEntry = req.body; // { id, employeeName, empCode, company, frontImg, backImg, avatarImg, signatureImg, savedAt, abasRequestId, abasEmployeeId }
   // Auto-generate hash from empCode if provided
   if (newEntry.empCode && !newEntry.hash) {
     newEntry.hash = hashEmpCode(newEntry.empCode);
   }
+  
+  newEntry.abasRequestId = newEntry.abasRequestId || null;
+  newEntry.abasEmployeeId = newEntry.abasEmployeeId || null;
+
+  // Upload to MinIO bucket 'abas' under employees/employee-id folder
+  const empIdFolder = newEntry.empCode || newEntry.abasEmployeeId || newEntry.employeeName || 'unknown';
+  const cleanedEmpId = String(empIdFolder)
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9_\-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  if (newEntry.frontImg && newEntry.frontImg.startsWith('data:')) {
+    newEntry.frontImg = await uploadBase64ToAbasMinio(newEntry.frontImg, `employees/${cleanedEmpId}/company_id_front.png`, 'image/png');
+  }
+  if (newEntry.backImg && newEntry.backImg.startsWith('data:')) {
+    newEntry.backImg = await uploadBase64ToAbasMinio(newEntry.backImg, `employees/${cleanedEmpId}/company_id_back.png`, 'image/png');
+  }
+  if (newEntry.avatarImg && newEntry.avatarImg.startsWith('data:')) {
+    newEntry.avatarImg = await uploadBase64ToAbasMinio(newEntry.avatarImg, `employees/${cleanedEmpId}/avatar.png`, 'image/png');
+  }
+  if (newEntry.signatureImg && newEntry.signatureImg.startsWith('data:')) {
+    newEntry.signatureImg = await uploadBase64ToAbasMinio(newEntry.signatureImg, `employees/${cleanedEmpId}/signature.png`, 'image/png');
+  }
+
   // Replace if same employee+company already exists
   const updated = [...existing.filter(e => !(e.employeeName === newEntry.employeeName && e.company === newEntry.company)), newEntry];
   fs.writeFileSync(IDS_FILE, JSON.stringify(updated, null, 2));
@@ -760,15 +996,41 @@ app.delete('/api/saved-ids/:id', (req, res) => {
   fs.writeFileSync(IDS_FILE, JSON.stringify(updated, null, 2));
   res.sendStatus(200);
 });
-app.patch('/api/saved-ids/:id', (req, res) => {
+app.patch('/api/saved-ids/:id', async (req, res) => {
   try {
     const data = JSON.parse(fs.readFileSync(IDS_FILE, 'utf8'));
     const idx = data.findIndex(e => String(e.id) === String(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Not found' });
-    data[idx] = { ...data[idx], ...req.body };
+    
+    const updates = req.body;
+    const empIdFolder = updates.empCode || data[idx].empCode || updates.abasEmployeeId || data[idx].abasEmployeeId || updates.employeeName || data[idx].employeeName || 'unknown';
+    const cleanedEmpId = String(empIdFolder)
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9_\-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+
+    if (updates.frontImg && updates.frontImg.startsWith('data:')) {
+      updates.frontImg = await uploadBase64ToAbasMinio(updates.frontImg, `employees/${cleanedEmpId}/company_id_front.png`, 'image/png');
+    }
+    if (updates.backImg && updates.backImg.startsWith('data:')) {
+      updates.backImg = await uploadBase64ToAbasMinio(updates.backImg, `employees/${cleanedEmpId}/company_id_back.png`, 'image/png');
+    }
+    if (updates.avatarImg && updates.avatarImg.startsWith('data:')) {
+      updates.avatarImg = await uploadBase64ToAbasMinio(updates.avatarImg, `employees/${cleanedEmpId}/avatar.png`, 'image/png');
+    }
+    if (updates.signatureImg && updates.signatureImg.startsWith('data:')) {
+      updates.signatureImg = await uploadBase64ToAbasMinio(updates.signatureImg, `employees/${cleanedEmpId}/signature.png`, 'image/png');
+    }
+
+    data[idx] = { ...data[idx], ...updates };
     fs.writeFileSync(IDS_FILE, JSON.stringify(data, null, 2));
     res.json(data[idx]);
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) {
+    console.error('[PATCH saved-ids] Error:', e.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // ── ID Requests ──
@@ -799,6 +1061,14 @@ app.post('/api/id-requests', (req, res) => {
     statusHistory: [{ status: 'pending', note: 'Request submitted', changedAt: now }],
     createdAt: now,
     updatedAt: now,
+    abasRequestId: req.body.abasRequestId || null,
+    abasEmployeeId: req.body.abasEmployeeId || null,
+    iraafId:       req.body.iraafId       || null,
+    pictureUrl:    req.body.pictureUrl    || null,
+    signatureUrl:  req.body.signatureUrl  || null,
+    supportingDocUrl: req.body.supportingDocUrl || null,
+    verifierName:  req.body.verifierName  || null,
+    approverName:  req.body.approverName  || null,
   };
   requests.unshift(newReq);
   writeRequests(requests);
@@ -806,8 +1076,143 @@ app.post('/api/id-requests', (req, res) => {
   res.status(201).json(newReq);
 });
 
+// POST /api/notify-abas  — called by fluffy frontend when ID is saved & ready
+app.post('/api/notify-abas', express.json(), async (req, res) => {
+  const { abasRequestId, savedIdId } = req.body;
+  if (!abasRequestId || !savedIdId) {
+    return res.status(400).json({ error: 'abasRequestId and savedIdId required' });
+  }
+
+  const ABAS_URL = process.env.ABAS_URL || 'https://abas.avegabros.net';
+  const ABAS_API_KEY = process.env.ABAS_API_KEY || '';
+
+  try {
+    const savedIds = readSavedIds();
+    const entry = savedIds.find(e => String(e.id) === String(savedIdId));
+    if (!entry) return res.status(404).json({ error: 'Saved ID not found' });
+
+    const payload = {
+      abasRequestId,
+      savedIdId: entry.id,
+      empCode: entry.empCode,
+      employeeName: entry.employeeName,
+      frontImgFilename: entry.frontImg ? entry.frontImg.split('/').pop() : null,
+      backImgFilename: entry.backImg ? entry.backImg.split('/').pop() : null,
+      savedAt: entry.savedAt,
+    };
+
+    const response = await axios.post(
+      `${ABAS_URL.replace(/\/$/, '')}/Corporate_Services/id_ready_webhook`,
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Abas-Api-Key': ABAS_API_KEY,
+        },
+        timeout: 10000,
+      }
+    );
+
+    console.log(`[NOTIFY-ABAS] Notified ABAS for request ${abasRequestId}:`, response.status);
+    res.json({ success: true, status: response.status });
+  } catch (err) {
+    console.error('[NOTIFY-ABAS] Failed to notify ABAS:', err.message);
+    res.status(500).json({ error: 'Failed to notify ABAS', detail: err.message });
+  }
+});
+
+// GET /api/test-abas-connection — Test connection to ABAS webhook
+app.get('/api/test-abas-connection', async (req, res) => {
+  const ABAS_URL = process.env.ABAS_URL || 'https://abas.avegabros.net';
+  const ABAS_API_KEY = process.env.ABAS_API_KEY || '';
+
+  try {
+    const response = await axios.post(
+      `${ABAS_URL.replace(/\/$/, '')}/Corporate_Services/webhook_handshake`,
+      {},
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Abas-Api-Key': ABAS_API_KEY,
+        },
+        timeout: 5000,
+      }
+    );
+    res.json({ success: true, message: 'Handshake successful!', data: response.data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Handshake failed', detail: err.message });
+  }
+});
+
+// Webhook helper to notify ABAS of status changes
+async function notifyAbasOfStatus(abasRequestId, status, details = {}) {
+  if (!abasRequestId) return;
+  const ABAS_URL = process.env.ABAS_URL || 'https://abas.avegabros.net';
+  const ABAS_API_KEY = process.env.ABAS_API_KEY || '';
+
+  try {
+    const payload = {
+      abasRequestId,
+      status,
+      ...details
+    };
+    
+    const response = await axios.post(
+      `${ABAS_URL.replace(/\/$/, '')}/Corporate_Services/id_status_webhook`,
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Abas-Api-Key': ABAS_API_KEY,
+        },
+        timeout: 10000,
+      }
+    );
+    console.log(`[NOTIFY-ABAS-STATUS] Status updated for request ${abasRequestId} to ${status}:`, response.status);
+    return true;
+  } catch (err) {
+    console.error(`[NOTIFY-ABAS-STATUS] Failed to update ABAS status for request ${abasRequestId}:`, err.message);
+    return false;
+  }
+}
+
+// POST update request status by abasRequestId (called by ABAS sync)
+app.post('/api/id-requests/abas/:abasRequestId', express.json(), (req, res) => {
+  const requests = readRequests();
+  const abasId = req.params.abasRequestId;
+  const idx = requests.findIndex(r => r.abasRequestId && String(r.abasRequestId) === String(abasId));
+  if (idx === -1) return res.status(404).json({ error: 'Request not found' });
+
+  const existing = requests[idx];
+  const now = new Date().toISOString();
+  const { status, note, iraafNo } = req.body;
+  let changed = false;
+
+  if (iraafNo && existing.iraafId !== iraafNo) {
+    existing.iraafId = iraafNo;
+    changed = true;
+  }
+
+  if (status && status.toLowerCase() !== existing.status) {
+    existing.status = status.toLowerCase(); // Map to lowercase AVPass statuses
+    existing.statusHistory = [
+      ...(existing.statusHistory || []),
+      { status: status.toLowerCase(), note: note || 'Updated from ABAS IT Helpdesk', changedAt: now }
+    ];
+    existing.updatedAt = now;
+    changed = true;
+  }
+
+  if (changed) {
+    requests[idx] = existing;
+    writeRequests(requests);
+    console.log(`[ID REQUEST Webhook] Updated ${existing.id} → status: ${existing.status}, iraafId: ${existing.iraafId} via ABAS sync`);
+  }
+  res.json(existing);
+});
+
 // PATCH update request (fields or status)
-app.patch('/api/id-requests/:id', (req, res) => {
+app.patch('/api/id-requests/:id', async (req, res) => {
   const requests = readRequests();
   const idx = requests.findIndex(r => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Not found' });
@@ -826,6 +1231,17 @@ app.patch('/api/id-requests/:id', (req, res) => {
       ...(existing.statusHistory || []),
       { status, note: note || '', changedAt: now },
     ];
+
+    // Trigger ABAS notification of status change
+    if (updated.abasRequestId) {
+      await notifyAbasOfStatus(updated.abasRequestId, status, {
+        requestId: updated.id,
+        employeeName: updated.employeeName,
+        empCode: updated.empCode,
+        iraafId: updated.iraafId,
+        note: note || ''
+      });
+    }
   }
 
   requests[idx] = updated;

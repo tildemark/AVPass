@@ -1,34 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../types';
+import type { IDRequest, RequestStatus } from '../types';
 import {
   ClipboardList, Plus, X, ChevronDown, Clock, CheckCircle, XCircle,
   Loader, PackageCheck, Search, Trash2, RefreshCw, ChevronRight, User,
-  Pencil, Wand2
+  Pencil, Wand2, Printer
 } from 'lucide-react';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-type RequestStatus = 'pending' | 'processing' | 'approved' | 'rejected' | 'completed';
-
-interface StatusEntry {
-  status: RequestStatus;
-  note: string;
-  changedAt: string;
-}
-
-interface IDRequest {
-  id: string;
-  employeeName: string;
-  empCode: string;
-  company: string;
-  department: string;
-  position: string;
-  purpose: string;
-  requestedBy: string;
-  status: RequestStatus;
-  statusHistory: StatusEntry[];
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface Props {
   currentUser: { username: string; role: string; token: string };
@@ -37,11 +14,16 @@ interface Props {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<RequestStatus, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-  pending:    { label: 'Pending',    color: '#d97706', bg: '#fef3c7', icon: <Clock size={13} /> },
-  processing: { label: 'Processing', color: '#2563eb', bg: '#dbeafe', icon: <Loader size={13} /> },
-  approved:   { label: 'Approved',   color: '#059669', bg: '#d1fae5', icon: <CheckCircle size={13} /> },
-  rejected:   { label: 'Rejected',   color: '#dc2626', bg: '#fee2e2', icon: <XCircle size={13} /> },
-  completed:  { label: 'Completed',  color: '#7c3aed', bg: '#ede9fe', icon: <PackageCheck size={13} /> },
+  pending:        { label: 'Pending',         color: '#d97706', bg: '#fef3c7', icon: <Clock size={13} /> },
+  processing:     { label: 'Processing',      color: '#2563eb', bg: '#dbeafe', icon: <Loader size={13} /> },
+  approved:       { label: 'Approved',        color: '#059669', bg: '#d1fae5', icon: <CheckCircle size={13} /> },
+  rejected:       { label: 'Rejected',        color: '#dc2626', bg: '#fee2e2', icon: <XCircle size={13} /> },
+  'id generated': { label: 'ID Generated',    color: '#8b5cf6', bg: '#f3e8ff', icon: <Wand2 size={13} /> },
+  printed:        { label: 'Printed',         color: '#06b6d4', bg: '#ecfeff', icon: <Printer size={13} /> },
+  completed:      { label: 'Completed',       color: '#7c3aed', bg: '#ede9fe', icon: <PackageCheck size={13} /> },
+  'for releasing':{ label: 'For Releasing',   color: '#3b82f6', bg: '#eff6ff', icon: <Clock size={13} /> },
+  claimed:        { label: 'Claimed',         color: '#10b981', bg: '#ecfdf5', icon: <CheckCircle size={13} /> },
+  cancelled:      { label: 'Cancelled',       color: '#64748b', bg: '#f1f5f9', icon: <XCircle size={13} /> },
 };
 
 function StatusBadge({ status }: { status: RequestStatus }) {
@@ -82,7 +64,23 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
 
   // Form state (new + edit shared)
-  const [form, setForm] = useState({ employeeName: '', empCode: '', company: '', department: '', position: '', purpose: '' });
+  const [form, setForm] = useState({
+    employeeName: '',
+    empCode: '',
+    company: '',
+    department: '',
+    position: '',
+    purpose: '',
+    iraafId: '',
+    verifierName: '',
+    approverName: '',
+    pictureUrl: '',
+    signatureUrl: '',
+    supportingDocUrl: ''
+  });
+  const [pictureFile, setPictureFile] = useState<File | null>(null);
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [supportingDocFile, setSupportingDocFile] = useState<File | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [editingReq, setEditingReq] = useState<IDRequest | null>(null); // null = new, set = editing
 
@@ -111,6 +109,17 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
     } catch { showToast('Failed to load requests', 'err'); }
     finally { setLoading(false); }
   }, []);
+
+  // Fetch saved ID when selected request changes
+  const [matchingSavedId, setMatchingSavedId] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!selectedReq?.empCode) { setMatchingSavedId(null); return; }
+    fetch(`${API_URL}/saved-ids?empCode=${encodeURIComponent(selectedReq.empCode)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(list => setMatchingSavedId(list.length > 0 ? list[list.length - 1] : null))
+      .catch(() => setMatchingSavedId(null));
+  }, [selectedReq?.empCode]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
@@ -169,14 +178,46 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
   // ── Helper to open form for editing ──
   const openEditForm = (req: IDRequest) => {
     setEditingReq(req);
-    setForm({ employeeName: req.employeeName, empCode: req.empCode, company: req.company, department: req.department, position: req.position, purpose: req.purpose });
+    setForm({
+      employeeName: req.employeeName || '',
+      empCode: req.empCode || '',
+      company: req.company || '',
+      department: req.department || '',
+      position: req.position || '',
+      purpose: req.purpose || '',
+      iraafId: req.iraafId || '',
+      verifierName: req.verifierName || '',
+      approverName: req.approverName || '',
+      pictureUrl: req.pictureUrl || '',
+      signatureUrl: req.signatureUrl || '',
+      supportingDocUrl: req.supportingDocUrl || ''
+    });
+    setPictureFile(null);
+    setSignatureFile(null);
+    setSupportingDocFile(null);
     setShowForm(true);
   };
 
   const closeForm = () => {
     setShowForm(false);
     setEditingReq(null);
-    setForm({ employeeName: '', empCode: '', company: '', department: '', position: '', purpose: '' });
+    setForm({
+      employeeName: '',
+      empCode: '',
+      company: '',
+      department: '',
+      position: '',
+      purpose: '',
+      iraafId: '',
+      verifierName: '',
+      approverName: '',
+      pictureUrl: '',
+      signatureUrl: '',
+      supportingDocUrl: ''
+    });
+    setPictureFile(null);
+    setSignatureFile(null);
+    setSupportingDocFile(null);
     setEmpSuggestions([]);
     setShowSuggestions(false);
   };
@@ -185,13 +226,44 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
   const handleSubmit = async () => {
     if (!form.employeeName.trim()) { showToast('Employee name is required', 'err'); return; }
     setFormLoading(true);
+
     try {
+      // 1. Upload files if selected
+      let uploadedUrls = { pictureUrl: form.pictureUrl, signatureUrl: form.signatureUrl, supportingDocUrl: form.supportingDocUrl };
+      if (pictureFile || signatureFile || supportingDocFile) {
+        const formData = new FormData();
+        formData.append('employeeName', form.employeeName);
+        if (pictureFile) formData.append('picture', pictureFile);
+        if (signatureFile) formData.append('signature', signatureFile);
+        if (supportingDocFile) formData.append('supportingDoc', supportingDocFile);
+
+        const uploadRes = await fetch(`${API_URL}/id-requests/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (uploadRes.ok) {
+          const resData = await uploadRes.json();
+          uploadedUrls = {
+            pictureUrl: resData.pictureUrl || form.pictureUrl,
+            signatureUrl: resData.signatureUrl || form.signatureUrl,
+            supportingDocUrl: resData.supportingDocUrl || form.supportingDocUrl
+          };
+        } else {
+          throw new Error('File upload failed');
+        }
+      }
+
+      const submissionPayload = {
+        ...form,
+        ...uploadedUrls
+      };
+
       if (editingReq) {
         // EDIT — PATCH only the fields (no status change)
         const res = await fetch(`${API_URL}/id-requests/${editingReq.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...form }),
+          body: JSON.stringify(submissionPayload),
         });
         if (!res.ok) throw new Error();
         const updated: IDRequest = await res.json();
@@ -203,7 +275,7 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
         const res = await fetch(`${API_URL}/id-requests`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...form, requestedBy: currentUser.username }),
+          body: JSON.stringify({ ...submissionPayload, requestedBy: currentUser.username }),
         });
         if (!res.ok) throw new Error();
         const created: IDRequest = await res.json();
@@ -211,19 +283,25 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
         showToast(`Request ${created.id} submitted!`);
       }
       closeForm();
-    } catch { showToast(editingReq ? 'Failed to update request' : 'Failed to submit request', 'err'); }
-    finally { setFormLoading(false); }
+    } catch (err: any) {
+      showToast(err.message || (editingReq ? 'Failed to update request' : 'Failed to submit request'), 'err');
+    } finally {
+      setFormLoading(false);
+    }
   };
 
   // ── Update status (admin) ──
-  const handleStatusUpdate = async () => {
+  const handleStatusUpdate = async (newStatus?: RequestStatus, noteText?: string) => {
     if (!selectedReq) return;
     setStatusLoading(true);
+    const payload = newStatus
+      ? { status: newStatus, note: noteText || '' }
+      : statusUpdate;
     try {
       const res = await fetch(`${API_URL}/id-requests/${selectedReq.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(statusUpdate),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
       const updated: IDRequest = await res.json();
@@ -346,7 +424,12 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
                 {filtered.map((req, i) => (
                   <tr key={req.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none', background: selectedReq?.id === req.id ? '#f5f3ff' : 'transparent', cursor: 'pointer', transition: 'background 0.1s' }}
                     onClick={() => { setSelectedReq(req); setStatusUpdate({ status: req.status, note: '' }); }}>
-                    <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontSize: '12px', color: '#6366f1', fontWeight: 700 }}>{req.id}</td>
+                    <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontSize: '12px', color: '#6366f1', fontWeight: 700 }}>
+                      {req.id}
+                      {req.iraafId && (
+                        <div style={{ fontSize: '9px', background: '#3b82f6', color: '#fff', padding: '2px 6px', borderRadius: '4px', display: 'block', marginTop: '4px', fontWeight: 700, width: 'fit-content' }}>IRAAF: {req.iraafId}</div>
+                      )}
+                    </td>
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ fontWeight: 600, color: '#0f172a' }}>{req.employeeName}</div>
                       {req.empCode && <div style={{ fontSize: '11px', color: '#94a3b8' }}>{req.empCode}</div>}
@@ -437,29 +520,139 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
                     <span style={{ color: '#fff', fontWeight: 800, fontSize: '15px' }}>{selectedReq.employeeName.charAt(0).toUpperCase()}</span>
                   </div>
                   <div>
-                    <p style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>{selectedReq.employeeName}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <p style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>{selectedReq.employeeName}</p>
+                      {selectedReq.iraafId && (
+                        <span style={{ fontSize: '9px', background: '#3b82f6', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>IRAAF Ticket Ref: {selectedReq.iraafId}</span>
+                      )}
+                    </div>
                     <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>{selectedReq.position || 'No position'}</p>
                   </div>
                 </div>
-                {[
+                 {[
+                  ['Request ID', selectedReq.id],
+                  ['IRAAF Ticket ID', selectedReq.iraafId],
                   ['Emp Code', selectedReq.empCode],
                   ['Company', selectedReq.company],
                   ['Department', selectedReq.department],
-                  ['Purpose', selectedReq.purpose],
+                  ['Verifier/Supervisor', selectedReq.verifierName],
+                  ['Approver/Manager', selectedReq.approverName],
+                  ['Reason', selectedReq.purpose],
                   ['Requested By', selectedReq.requestedBy],
                   ['Submitted', fmt(selectedReq.createdAt)],
                   ['Last Updated', fmt(selectedReq.updatedAt)],
-                ].map(([label, val]) => val ? (
-                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
-                    <span style={{ color: '#64748b', fontWeight: 500 }}>{label}</span>
-                    <span style={{ color: '#0f172a', fontWeight: 600, textAlign: 'right', maxWidth: '60%' }}>{val}</span>
-                  </div>
-                ) : null)}
+                ].map(([label, val]) => {
+                  if (!val) return null;
+                  if (label === 'Reason') {
+                    const purposeClean = String(val).trim().toLowerCase();
+                    let bg = '#e2e8f0';
+                    let color = '#475569';
+                    if (purposeClean === 'new') {
+                      bg = '#d1fae5'; color = '#065f46';
+                    } else if (purposeClean === 'lost') {
+                      bg = '#fee2e2'; color = '#991b1b';
+                    } else if (purposeClean === 'damaged') {
+                      bg = '#ffedd5'; color = '#9a3412';
+                    } else if (purposeClean === 'replacement') {
+                      bg = '#dbeafe'; color = '#1e40af';
+                    }
+                    return (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px', alignItems: 'center' }}>
+                        <span style={{ color: '#64748b', fontWeight: 500 }}>{label}</span>
+                        <span style={{ background: bg, color: color, fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', textAlign: 'right', maxWidth: '60%', display: 'inline-block' }}>{val}</span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
+                      <span style={{ color: '#64748b', fontWeight: 500 }}>{label}</span>
+                      <span style={{ color: '#0f172a', fontWeight: 600, textAlign: 'right', maxWidth: '60%' }}>{val}</span>
+                    </div>
+                  );
+                })}
                 <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '12px', color: '#64748b' }}>Current Status:</span>
                   <StatusBadge status={selectedReq.status} />
                 </div>
               </div>
+
+              {/* Request Attachments */}
+              {(selectedReq.pictureUrl || selectedReq.signatureUrl || selectedReq.supportingDocUrl) && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '16px', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
+                  <p style={{ margin: '0 0 10px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Submitted Attachments</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+                    {selectedReq.pictureUrl && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>
+                        <span style={{ color: '#64748b' }}>Profile Picture:</span>
+                        <a href={selectedReq.pictureUrl} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontWeight: 600, textDecoration: 'none' }}>View Photo ↗</a>
+                      </div>
+                    )}
+                    {selectedReq.signatureUrl && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>
+                        <span style={{ color: '#64748b' }}>Signature:</span>
+                        <a href={selectedReq.signatureUrl} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontWeight: 600, textDecoration: 'none' }}>View Signature ↗</a>
+                      </div>
+                    )}
+                    {selectedReq.supportingDocUrl && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '4px' }}>
+                        <span style={{ color: '#64748b' }}>Supporting Doc:</span>
+                        <a href={selectedReq.supportingDocUrl} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontWeight: 600, textDecoration: 'none' }}>View Document ↗</a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Generated ID Card Preview */}
+              {matchingSavedId && (
+                <div style={{ marginBottom: '16px', background: '#f8fafc', borderRadius: '14px', padding: '16px' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Generated ID Card</p>
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                    {matchingSavedId.frontImg && (
+                      <img src={matchingSavedId.frontImg} style={{ width: '140px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', border: '1px solid #e2e8f0' }} alt="ID Front" />
+                    )}
+                    {matchingSavedId.backImg && (
+                      <img src={matchingSavedId.backImg} style={{ width: '140px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', border: '1px solid #e2e8f0' }} alt="ID Back" />
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '8px' }}>
+                    Saved ID: <strong>{matchingSavedId.employeeName}</strong> · Saved {matchingSavedId.savedAt}
+                  </div>
+                </div>
+              )}
+
+              {/* Mark as Done & Notify ABAS Button */}
+              {isAdmin && selectedReq.status === 'approved' && selectedReq.abasRequestId && matchingSavedId && (
+                <div style={{ background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)', border: '1px solid #6ee7b7', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <CheckCircle size={15} color="#059669" /> ID card ready for ABAS
+                  </p>
+                  <button
+                    onClick={async () => {
+                      // 1. Update request status to 'completed'
+                      await handleStatusUpdate('completed', 'ID card generated and ABAS notified.');
+                      // 2. Notify ABAS webhook
+                      try {
+                        const notifyRes = await fetch(`${API_URL}/notify-abas`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            abasRequestId: selectedReq.abasRequestId,
+                            savedIdId: matchingSavedId.id,
+                          }),
+                        });
+                        if (!notifyRes.ok) throw new Error();
+                        showToast('ABAS notified — ID is marked ready!');
+                      } catch {
+                        showToast('Status updated but failed to notify ABAS', 'err');
+                      }
+                    }}
+                    style={{ width: '100%', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', boxShadow: '0 4px 14px rgba(5,150,105,0.35)' }}
+                  >
+                    ✓ Mark Done & Notify ABAS
+                  </button>
+                </div>
+              )}
 
               {/* Status Timeline */}
               <div style={{ marginBottom: '16px' }}>
@@ -522,7 +715,7 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
                       rows={2}
                       style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd6fe', borderRadius: '10px', fontSize: '13px', resize: 'vertical', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
                   </div>
-                  <button onClick={handleStatusUpdate} disabled={statusLoading || statusUpdate.status === selectedReq.status}
+                  <button onClick={() => handleStatusUpdate()} disabled={statusLoading || statusUpdate.status === selectedReq.status}
                     style={{ width: '100%', background: statusUpdate.status === selectedReq.status ? '#e2e8f0' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: statusUpdate.status === selectedReq.status ? '#94a3b8' : '#fff', border: 'none', borderRadius: '10px', padding: '10px', cursor: statusUpdate.status === selectedReq.status ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                     {statusLoading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Updating...</> : 'Update Status'}
                   </button>
@@ -590,10 +783,13 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
             </div>
 
             {[
-              { key: 'empCode',    label: 'Employee Code',   placeholder: 'e.g. EMP-001' },
-              { key: 'position',   label: 'Position / Title', placeholder: 'e.g. Software Engineer' },
-              { key: 'company',    label: 'Company',          placeholder: 'e.g. Avega Bros. Inc.' },
-              { key: 'department', label: 'Department',       placeholder: 'e.g. IT Department' },
+              { key: 'empCode',      label: 'Employee Code',      placeholder: 'e.g. EMP-001' },
+              { key: 'position',     label: 'Position / Title',   placeholder: 'e.g. Software Engineer' },
+              { key: 'company',      label: 'Company',            placeholder: 'e.g. Avega Bros. Inc.' },
+              { key: 'department',   label: 'Department',         placeholder: 'e.g. IT Department' },
+              { key: 'iraafId',      label: 'IRAAF Ticket ID',    placeholder: 'e.g. TKT-12345 (Optional)' },
+              { key: 'verifierName', label: 'Verifier/Supervisor', placeholder: 'e.g. John Doe' },
+              { key: 'approverName', label: 'Approver/Manager',   placeholder: 'e.g. Jane Smith' },
             ].map(f => (
               <div key={f.key} style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>{f.label}</label>
@@ -604,8 +800,31 @@ export default function IDRequests({ currentUser, onGoToBuilder }: Props) {
 
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>Purpose / Reason</label>
-              <textarea value={form.purpose} onChange={e => setForm(prev => ({ ...prev, purpose: e.target.value }))} placeholder="e.g. New employee onboarding, Lost ID replacement..." rows={3}
+              <textarea value={form.purpose} onChange={e => setForm(prev => ({ ...prev, purpose: e.target.value }))} placeholder="e.g. New employee onboarding, Lost ID replacement..." rows={2}
                 style={{ width: '100%', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', resize: 'vertical', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            </div>
+
+            {/* File Upload Fields */}
+            <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#475569' }}>📸 Attachments</p>
+              
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>Employee Picture (photo)</label>
+                <input type="file" accept="image/*" onChange={e => setPictureFile(e.target.files?.[0] || null)} style={{ fontSize: '12px' }} />
+                {form.pictureUrl && <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px' }}>✓ Currently attached: <a href={form.pictureUrl} target="_blank" rel="noreferrer">View Photo</a></div>}
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>Employee Signature</label>
+                <input type="file" accept="image/*" onChange={e => setSignatureFile(e.target.files?.[0] || null)} style={{ fontSize: '12px' }} />
+                {form.signatureUrl && <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px' }}>✓ Currently attached: <a href={form.signatureUrl} target="_blank" rel="noreferrer">View Signature</a></div>}
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>Supporting Doc (PDF / Image)</label>
+                <input type="file" accept="image/*,application/pdf" onChange={e => setSupportingDocFile(e.target.files?.[0] || null)} style={{ fontSize: '12px' }} />
+                {form.supportingDocUrl && <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px' }}>✓ Currently attached: <a href={form.supportingDocUrl} target="_blank" rel="noreferrer">View Doc</a></div>}
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: '10px' }}>
