@@ -556,7 +556,7 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
                 emergency_contact_person: exactMatch.emergency_contact_person || '',
                 emergency_contact_num: exactMatch.emergency_contact_num || '',
               };
-              autoFill(empRecord);
+              autoFill(empRecord as any);
             }
           })
           .catch(err => console.error('[IDBuilder] Auto-load employee details failed:', err));
@@ -1563,29 +1563,29 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
                     </div>
                   </div>
                   {editingID && (editingID.pictureUrl || editingID.signatureUrl || editingID.supportingDocUrl) && (
-                      <div style={{ marginTop: '12px', padding: '10px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                          Original Request Attachments
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
-                          {editingID.pictureUrl && (
-                            <a href={resolveImg(editingID.pictureUrl)} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                              <span>📷 Download Original Photo (to remove background)</span>
-                            </a>
-                          )}
-                          {editingID.signatureUrl && (
-                            <a href={resolveImg(editingID.signatureUrl)} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                              <span>✍ Download Original Signature</span>
-                            </a>
-                          )}
-                          {editingID.supportingDocUrl && (
-                            <a href={resolveImg(editingID.supportingDocUrl)} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                              <span>📄 Download Supporting Document</span>
-                            </a>
-                          )}
-                        </div>
+                    <div style={{ marginTop: '12px', padding: '10px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                        Original Request Attachments
                       </div>
-                    )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
+                        {editingID.pictureUrl && (
+                          <a href={resolveImg(editingID.pictureUrl) || undefined} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                            <span>📷 Download Original Photo (to remove background)</span>
+                          </a>
+                        )}
+                        {editingID.signatureUrl && (
+                          <a href={resolveImg(editingID.signatureUrl) || undefined} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                            <span>✍ Download Original Signature</span>
+                          </a>
+                        )}
+                        {editingID.supportingDocUrl && (
+                          <a href={resolveImg(editingID.supportingDocUrl) || undefined} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                            <span>📄 Download Supporting Document</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </AccSection>
