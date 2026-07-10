@@ -519,7 +519,30 @@ app.get('/api/verify/:token', async (req, res) => {
 
   const buildResponse = (emp) => {
     const isActive = ACTIVE_STATUSES.includes((emp.employee_status ?? '').toString().trim().toLowerCase());
-    return { found: true, empCode: emp.employee_id, name: emp.full_name, position: emp.position, company: emp.company || '', photo: emp.picture || null, emergencyPerson: emp.emergency_contact_person || '', emergencyNum: emp.emergency_contact_num || '', employmentStatus: emp.employee_status || '', status: isActive ? 'ACTIVE' : 'INACTIVE', isActive };
+    
+    let first = (emp.first_name || emp.firstname || '').trim();
+    const last = (emp.last_name || emp.lastname || '').trim();
+    const middle = (emp.middle_name || emp.middlename || '').trim();
+    let suffix = (emp.suffix || emp.suffix_name || '').trim();
+    
+    let formattedName = emp.full_name || '';
+    if (first || last) {
+      const suffixRegex = /\s+(JR\.?|SR\.?|I{2,3}|IV)$/i;
+      const match = first.match(suffixRegex);
+      if (match) {
+        first = first.replace(suffixRegex, '').trim();
+        if (!suffix) {
+          suffix = match[0].toUpperCase();
+          if (!suffix.endsWith('.') && (suffix === 'JR' || suffix === 'SR')) {
+            suffix += '.';
+          }
+        }
+      }
+      const mi = middle.trim() ? `${middle.trim().charAt(0).toUpperCase()}.` : '';
+      formattedName = [first.toUpperCase(), mi, last.toUpperCase(), suffix.toUpperCase()].filter(Boolean).join(' ');
+    }
+    
+    return { found: true, empCode: emp.employee_id, name: formattedName, position: emp.position, company: emp.company || '', photo: emp.picture || null, emergencyPerson: emp.emergency_contact_person || '', emergencyNum: emp.emergency_contact_num || '', employmentStatus: emp.employee_status || '', status: isActive ? 'ACTIVE' : 'INACTIVE', isActive };
   };
 
   const hrisSearch = async (search) => {

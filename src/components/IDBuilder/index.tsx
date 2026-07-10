@@ -45,6 +45,40 @@ const SegmentedControl = ({ options, value, onChange }: { options: {label:string
   </div>
 );
 
+// ── NAME FORMATTING HELPER ──
+const suffixRegex = /\s+(JR\.?|SR\.?|I{2,3}|IV)$/i;
+
+export const parseEmployeeName = (emp: any) => {
+  let first = (emp.firstname || emp.first_name || '').trim();
+  const last = (emp.lastname || emp.last_name || '').trim();
+  const middle = (emp.middlename || emp.middle_name || '').trim();
+  let suffix = (emp.suffix || emp.suffix_name || '').trim();
+
+  // Extract suffix from first name if present and suffix is empty
+  const match = first.match(suffixRegex);
+  if (match) {
+    first = first.replace(suffixRegex, '').trim();
+    if (!suffix) {
+      suffix = match[0].toUpperCase();
+      if (!suffix.endsWith('.') && (suffix === 'JR' || suffix === 'SR')) {
+        suffix += '.';
+      }
+    }
+  }
+
+  const initial = middle ? `${middle.charAt(0).toUpperCase()}.` : '';
+  return { first: first.toUpperCase(), last: last.toUpperCase(), middle: middle.toUpperCase(), initial, suffix: suffix.toUpperCase() };
+};
+
+export const formatFullName = (emp: any) => {
+  const rawFirst = emp.first_name || emp.firstname || '';
+  const rawLast = emp.last_name || emp.lastname || '';
+  if (!rawFirst && !rawLast) return emp.name || emp.full_name || '';
+
+  const { first, initial, last, suffix } = parseEmployeeName(emp);
+  return [first, initial, last, suffix].filter(Boolean).join(' ');
+};
+
 // ── ACCORDION SECTION ──
 const AccSection = React.memo(({ id, icon, title, open, onToggle, children }: {
   id: string; icon: React.ReactNode; title: string; open: boolean; onToggle: (id: string) => void; children: React.ReactNode;
@@ -424,6 +458,10 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
           signature: e.signature || null,
           emergency_contact_num: e.emergency_contact_num || '',
           emergency_contact_person: e.emergency_contact_person || '',
+          firstname: e.first_name || e.firstname || '',
+          lastname: e.last_name || e.lastname || '',
+          middlename: e.middle_name || e.middlename || '',
+          suffix: e.suffix || e.suffix_name || '',
         } as any));
         setEmpResults(list);
       } catch { setEmpResults([]); }
@@ -555,6 +593,10 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
                 company: exactMatch.company || '',
                 emergency_contact_person: exactMatch.emergency_contact_person || '',
                 emergency_contact_num: exactMatch.emergency_contact_num || '',
+                firstname: exactMatch.first_name || exactMatch.firstname || '',
+                lastname: exactMatch.last_name || exactMatch.lastname || '',
+                middlename: exactMatch.middle_name || exactMatch.middlename || '',
+                suffix: exactMatch.suffix || exactMatch.suffix_name || '',
               };
               autoFill(empRecord as any);
             }
@@ -663,10 +705,17 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
     setCustomPhoto(null);
     setCustomSig(null);
     if(empSearchRef.current) empSearchRef.current.value = emp.name;
+    
+    const formattedFullName = formatFullName(emp);
+    
     // Fill front card fields
     setFront(p=>({...p, fields:p.fields.map(f=>{
-      if(f.id==='fullname') return {...f, value: emp.name};
+      if(f.id==='fullname') return {...f, value: formattedFullName};
       if(f.id==='nickname') {
+        const first = (emp as any).firstname || (emp as any).first_name || '';
+        if (first.trim()) {
+          return {...f, value: first.trim().toUpperCase()};
+        }
         const commaIdx = emp.name.indexOf(',');
         let firstName = emp.name;
         if (commaIdx !== -1) {
@@ -1476,17 +1525,97 @@ export default function IDBuilder({ editingID, onEditSaved, pendingTemplate, onT
                 )}
               </div>
               {selectedEmployee&&(
-                <div style={{padding:'12px',background:'#f8fafc',borderRadius:'10px',border:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:'12px'}}>
-                  {employeePhoto ? <img src={employeePhoto} style={{width:'36px',height:'36px',borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid #fff',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}/> : <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'#e2e8f0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',fontWeight:700,color:'#94a3b8'}}>{selectedEmployee.name.charAt(0)}</div>}
-                  <div style={{minWidth:0}}>
-                    <div style={{fontSize:'13px',fontWeight:700,color:'#0f172a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selectedEmployee.name}</div>
-                    <div style={{fontSize:'11px',color:'#64748b'}}>{selectedEmployee.position}</div>
-                    {(selectedEmployee as any).company && (
-                      <div style={{marginTop:'4px'}}>
-                        <span style={{background:'#eff6ff',color:'#2563eb',borderRadius:'4px',padding:'2px 7px',fontSize:'10px',fontWeight:600}}>{(selectedEmployee as any).company}</span>
-                      </div>
-                    )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
+                  <div style={{padding:'12px',background:'#f8fafc',borderRadius:'10px',border:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:'12px'}}>
+                    {employeePhoto ? <img src={employeePhoto} style={{width:'36px',height:'36px',borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid #fff',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}/> : <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'#e2e8f0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',fontWeight:700,color:'#94a3b8'}}>{selectedEmployee.name.charAt(0)}</div>}
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:'13px',fontWeight:700,color:'#0f172a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selectedEmployee.name}</div>
+                      <div style={{fontSize:'11px',color:'#64748b'}}>{selectedEmployee.position}</div>
+                      {(selectedEmployee as any).company && (
+                        <div style={{marginTop:'4px'}}>
+                          <span style={{background:'#eff6ff',color:'#2563eb',borderRadius:'4px',padding:'2px 7px',fontSize:'10px',fontWeight:600}}>{(selectedEmployee as any).company}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  
+                  {((selectedEmployee as any).firstname || (selectedEmployee as any).lastname) && (
+                    <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Name Formatting Options
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(() => {
+                          const { first, last, initial, suffix } = parseEmployeeName(selectedEmployee);
+
+                          // 1. [lastname], [firstname] [suffix] [initial].
+                          const opt1 = `${last}, ${[first, suffix, initial].filter(Boolean).join(' ')}`.trim().replace(/,\s*$/, '');
+
+                          // 2. [firstname] [initial]. [lastname] [suffix]
+                          const opt2 = [first, initial, last, suffix].filter(Boolean).join(' ');
+
+                          // 3. [firstname] [suffix] [initial]. [lastname]
+                          const opt3 = [[first, suffix, initial].filter(Boolean).join(' '), last].filter(Boolean).join(' ');
+
+                          // 4. [firstname] [lastname] [suffix]
+                          const opt4 = [first, last, suffix].filter(Boolean).join(' ');
+
+                          return (
+                            <>
+                              <button
+                                onClick={() => setFront(p => ({ ...p, fields: p.fields.map(f => f.id === 'fullname' ? { ...f, value: opt1 } : f) }))}
+                                style={{ padding: '8px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '11px', fontWeight: 600, color: '#334155', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                              >
+                                <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 500 }}>[lastname], [firstname] [suffix] [initial].</span>
+                                <span>{opt1}</span>
+                              </button>
+                              <button
+                                onClick={() => setFront(p => ({ ...p, fields: p.fields.map(f => f.id === 'fullname' ? { ...f, value: opt2 } : f) }))}
+                                style={{ padding: '8px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '11px', fontWeight: 600, color: '#334155', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                              >
+                                <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 500 }}>[firstname] [initial]. [lastname] [suffix]</span>
+                                <span>{opt2}</span>
+                              </button>
+                              <button
+                                onClick={() => setFront(p => ({ ...p, fields: p.fields.map(f => f.id === 'fullname' ? { ...f, value: opt3 } : f) }))}
+                                style={{ padding: '8px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '11px', fontWeight: 600, color: '#334155', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                              >
+                                <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 500 }}>[firstname] [suffix] [initial]. [lastname]</span>
+                                <span>{opt3}</span>
+                              </button>
+                              <button
+                                onClick={() => setFront(p => ({ ...p, fields: p.fields.map(f => f.id === 'fullname' ? { ...f, value: opt4 } : f) }))}
+                                style={{ padding: '8px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '11px', fontWeight: 600, color: '#334155', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                              >
+                                <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 500 }}>[firstname] [lastname] [suffix]</span>
+                                <span>{opt4}</span>
+                              </button>
+                            </>
+                          );
+                        })()}
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                          <button
+                            onClick={() => {
+                              const first = ((selectedEmployee as any).firstname || (selectedEmployee as any).first_name || '').trim().toUpperCase();
+                              setFront(p => ({ ...p, fields: p.fields.map(f => f.id === 'fullname' ? { ...f, value: first } : f) }));
+                            }}
+                            style={{ flex: 1, padding: '6px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '10px', fontWeight: 600, color: '#64748b', cursor: 'pointer', textAlign: 'center' }}
+                          >
+                            Set First Name
+                          </button>
+                          <button
+                            onClick={() => {
+                              const last = ((selectedEmployee as any).lastname || (selectedEmployee as any).last_name || '').trim().toUpperCase();
+                              setFront(p => ({ ...p, fields: p.fields.map(f => f.id === 'fullname' ? { ...f, value: last } : f) }));
+                            }}
+                            style={{ flex: 1, padding: '6px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '10px', fontWeight: 600, color: '#64748b', cursor: 'pointer', textAlign: 'center' }}
+                          >
+                            Set Last Name
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
