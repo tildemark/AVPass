@@ -18,7 +18,12 @@ export interface EmployeeRecord {
   indication: string;
   signature: string | null;
   photo: string | null;
+  firstname?: string;
+  lastname?: string;
+  middlename?: string;
+  suffix?: string;
 }
+
 
 export interface ShapeElement {
   id: string;

@@ -25,6 +25,31 @@ interface LoadDatabaseProps {
 
 const LIMIT = 100;
 
+const suffixRegex = /\s+(JR\.?|SR\.?|I{2,3}|IV)$/i;
+
+const formatFullName = (emp: any) => {
+  let first = (emp.first_name || emp.firstname || '').trim();
+  const last = (emp.last_name || emp.lastname || '').trim();
+  const middle = (emp.middle_name || emp.middlename || '').trim();
+  let suffix = (emp.suffix || emp.suffix_name || '').trim();
+
+  if (!first && !last) return emp.full_name || '';
+
+  const match = first.match(suffixRegex);
+  if (match) {
+    first = first.replace(suffixRegex, '').trim();
+    if (!suffix) {
+      suffix = match[0].toUpperCase();
+      if (!suffix.endsWith('.') && (suffix === 'JR' || suffix === 'SR')) {
+        suffix += '.';
+      }
+    }
+  }
+
+  const mi = middle.trim() ? `${middle.trim().charAt(0).toUpperCase()}.` : '';
+  return [first.toUpperCase(), mi, last.toUpperCase(), suffix.toUpperCase()].filter(Boolean).join(' ');
+};
+
 export default function LoadDatabase({ setEmployeeDatabase }: LoadDatabaseProps) {
   const [employees, setEmployees]         = useState<ApiEmployee[]>([]);
   const [isLoading, setIsLoading]         = useState(true);
@@ -99,8 +124,7 @@ export default function LoadDatabase({ setEmployeeDatabase }: LoadDatabaseProps)
           <AlertCircle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: "2px" }} />
           <div>
             <div style={{ fontSize: "13px", fontWeight: 700, color: "#dc2626" }}>Failed to load employees</div>
-            <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "2px" }}>{error}</div>
-            <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px" }}>Make sure the backend server is running.</div>
+            <div style={{ fontSize: "12px", color: "#ef4444", marginTop: "2px" }}>{error}</div>
           </div>
         </div>
       )}
@@ -141,7 +165,7 @@ export default function LoadDatabase({ setEmployeeDatabase }: LoadDatabaseProps)
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "#fff"}>
                     <td style={{ ...td, color: "#94a3b8", fontSize: "11px" }}>{page * LIMIT + idx + 1}</td>
                     <td style={{ ...td, fontFamily: "monospace", fontWeight: 700, color: "#667eea", fontSize: "12px" }}>{emp.employee_id || "—"}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>{emp.full_name || "—"}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>{formatFullName(emp) || "—"}</td>
                     <td style={{ ...td, color: "#64748b" }}>{emp.position || <span style={{ color: "#cbd5e1", fontSize: "11px" }}>—</span>}</td>
                     <td style={{ ...td, fontSize: "12px" }}>{emp.company
                       ? <span style={{ background: "#eff6ff", color: "#2563eb", borderRadius: "6px", padding: "2px 8px", fontSize: "11px", fontWeight: 600 }}>{emp.company}</span>
