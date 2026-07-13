@@ -231,8 +231,8 @@ app.use(express.json({ limit: '50mb' }));
 
 // ── Smart Image Proxy ──
 // Serves locally if cached, otherwise fetches from avegabros.net and caches
-app.get('/images/*', async (req, res) => {
-  const relativePath = req.params[0] || req.path.replace(/^\/images\//, '');
+app.get(/^\/images\/(.*)/, async (req, res) => {
+  const relativePath = req.params[0];
 
   res.setHeader('Access-Control-Allow-Origin', '*');
 
